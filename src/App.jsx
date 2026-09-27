@@ -1,0 +1,143 @@
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { StateProvider, StateContext } from './context/StateContext';
+import Navbar from './components/Navbar';
+import SplashScreen from './components/SplashScreen';
+import SchoolPortal from './pages/SchoolPortal';
+import CollectorPortal from './pages/CollectorPortal';
+import AdminPortal from './pages/AdminPortal';
+import LoginPortal from './pages/LoginPortal';
+import BuyerPortal from './pages/BuyerPortal';
+import { App as CapApp } from '@capacitor/app';
+
+function MainApp() {
+  const { currentRole, isLoggedIn, setIsLoggedIn } = useContext(StateContext);
+  const [showSplash, setShowSplash] = useState(true);
+  
+  // Tab routing
+  const [activeTab, setActiveTab] = useState('home');
+  const historyRef = useRef(['home']);
+
+  // Custom tab change wrapper to record navigation history
+  const handleTabChange = (newTab) => {
+    if (newTab !== activeTab) {
+      historyRef.current.push(newTab);
+      setActiveTab(newTab);
+      try {
+        window.history.pushState({ tab: newTab }, '', `#${newTab}`);
+      } catch (e) {
+        // Ignore iframe state restriction if any
+      }
+    }
+  };
+
+  // Listen for hardware back button on Android devices & web back button
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const defaultHomeTab = currentRole === 'admin' ? 'dashboard' : 'home';
+
+    const handleBackNavigation = () => {
+      if (historyRef.current.length > 1) {
+        historyRef.current.pop();
+        const prevTab = historyRef.current[historyRef.current.length - 1];
+        setActiveTab(prevTab || defaultHomeTab);
+      } else if (activeTab !== defaultHomeTab) {
+        historyRef.current = [defaultHomeTab];
+        setActiveTab(defaultHomeTab);
+      } else {
+        // Minimize app if already on home screen
+        CapApp.minimizeApp().catch(() => {});
+      }
+    };
+
+    // Capacitor Native Android Back Button
+    const backListener = CapApp.addListener('backButton', () => {
+      handleBackNavigation();
+    });
+
+    // Web popstate back navigation
+    const handlePopState = (e) => {
+      if (e.state && e.state.tab) {
+        setActiveTab(e.state.tab);
+      } else {
+        handleBackNavigation();
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      backListener.then(h => h.remove()).catch(() => {});
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isLoggedIn, activeTab, currentRole]);
+
+  return (
+    <>
+      {showSplash && (
+        <SplashScreen onFinish={() => setShowSplash(false)} duration={1700} />
+      )}
+
+      {!isLoggedIn ? (
+        <LoginPortal onLoginSuccess={(role) => {
+          setIsLoggedIn(true);
+          const homeTab = role === 'admin' ? 'dashboard' : 'home';
+          historyRef.current = [homeTab];
+          setActiveTab(homeTab);
+        }} />
+      ) : (
+        <div style={styles.appContainer}>
+          {/* Dynamic View Router */}
+          <main style={styles.main}>
+            {currentRole === 'school' && (
+              <SchoolPortal activeTab={activeTab} setActiveTab={handleTabChange} />
+            )}
+            {currentRole === 'collector' && (
+              <CollectorPortal activeTab={activeTab} setActiveTab={handleTabChange} />
+            )}
+            {currentRole === 'buyer' && (
+              <BuyerPortal activeTab={activeTab} setActiveTab={handleTabChange} />
+            )}
+            {currentRole === 'admin' && (
+              <AdminPortal activeTab={activeTab} setActiveTab={handleTabChange} />
+            )}
+          </main>
+
+          {/* Global Navigation & Role Switcher */}
+          <div style={styles.navContainer}>
+            <Navbar activeTab={activeTab} setActiveTab={handleTabChange} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <StateProvider>
+      <MainApp />
+    </StateProvider>
+  );
+}
+
+const styles = {
+  appContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: '100vh',
+    width: '100%',
+    maxWidth: '480px',
+    margin: '0 auto'
+  },
+  main: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column'
+  },
+  navContainer: {
+    padding: '0 16px 0 16px',
+    marginTop: '16px',
+    marginBottom: 0,
+    width: '100%'
+  }
+};
